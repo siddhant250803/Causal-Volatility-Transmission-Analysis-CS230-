@@ -1,4 +1,4 @@
-# Causal Volatility Transmission Framework
+# Causal Volatility Transmission Analysis
 
 ## Overview
 
