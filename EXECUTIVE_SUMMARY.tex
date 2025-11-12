@@ -1,0 +1,21 @@
+\documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{parskip}
+
+\title{Executive Summary: Causal Volatility Transmission Analysis}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section*{Executive Summary}
+
+This project develops a deep learning framework for discovering and analyzing causal relationships in high-frequency stock volatility transmission. Using attention-based neural networks, we model how volatility shocks propagate between stocks with heterogeneous time lags, enabling identification of leading indicators and contagion pathways in financial markets. The system processes 5-minute interval stock returns from 252,021 time steps (2004-2016) across up to 200 stocks, predicting realized volatility while simultaneously learning the causal graph structure.
+
+Our methodology employs a novel \textit{Causal Attention Model} with learned temporal lags and gating mechanisms. The architecture consists of: (1) stock embeddings (\(d_{\text{model}} = 64\)) that encode historical returns over a 7-hour lookback window (84 intervals), (2) a differentiable lagged attention mechanism with soft temporal indexing that learns continuous lag values \(\tau_i \in [0, 360]\) minutes (6 hours) for each source stock \(i\), and (3) learnable causal gates \(g_i \in [0,1]\) that determine influence strength. The model is trained with MSE loss plus balanced regularization: \(\mathcal{L} = \mathcal{L}_{\text{MSE}} + \lambda \|g\|_2 + \beta \mathcal{L}_{\text{lag-div}} + \gamma \mathcal{L}_{\text{TV}} + \eta \mathcal{L}_{\text{IRM}}\), where terms enforce sparse gate selection (\(\lambda = 0.005\)), lag diversity (\(\beta = 0.01\)), attention smoothness (\(\gamma = 0.001\)), and cross-regime stability (\(\eta = 0.001\)). Relationships are filtered using relative thresholding (top 50\% of learned gates) and validated using classical Granger causality tests (F-tests with \(p < 0.05\)) to distinguish genuine temporal precedence from spurious correlations. The framework achieves \(R^2 > 0.99\) on validation sets while producing sparse, interpretable causal graphs showing which stocks influence each target and at what time delays, with applications in risk management, portfolio construction, and systemic risk monitoring.
+
+\end{document}
+

@@ -33,6 +33,7 @@ This will install:
 - Pandas (data manipulation)
 - Matplotlib & Seaborn (visualization)
 - scikit-learn (metrics)
+- statsmodels (Granger causality tests)
 - tqdm (progress bars)
 
 ## Verify Installation
@@ -140,6 +141,7 @@ matplotlib>=3.7.0     # Plotting
 seaborn>=0.12.0       # Statistical visualization
 scikit-learn>=1.3.0   # Machine learning utilities
 tqdm>=4.65.0          # Progress bars
+statsmodels>=0.14.0   # Granger causality tests
 ```
 
 ## Next Steps

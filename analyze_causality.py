@@ -67,30 +67,41 @@ class CausalityAnalyzer:
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Model checkpoint not found at {checkpoint_path}. Please train the model first.")
         
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
         
         print(f"Loaded model for {self.stock_name}")
         print(f"Analyzing relationships with {len(self.stock_names)} stocks")
         
-    def get_causal_relationships(self, threshold: float = None) -> pd.DataFrame:
+    def get_causal_relationships(self, threshold: float = None, use_relative: bool = None) -> pd.DataFrame:
         """
         Extract causal relationships from the model.
         
         Args:
-            threshold: Minimum gate value to consider a relationship significant
+            threshold: Minimum gate value (or relative threshold if use_relative=True)
+            use_relative: If True, threshold is relative to max gate value
             
         Returns:
             DataFrame with causal relationships
         """
         if threshold is None:
             threshold = self.config.CAUSAL_THRESHOLD
+        if use_relative is None:
+            use_relative = getattr(self.config, 'USE_RELATIVE_THRESHOLD', False)
         
         # Get causal graph
         causal_graph = self.model.get_causal_graph(self.target_stock_idx)
         gates = causal_graph['gates']
         lags = causal_graph['lags']
+        
+        # Calculate effective threshold
+        if use_relative:
+            max_gate = gates.max()
+            effective_threshold = max_gate * threshold
+            print(f"Using relative threshold: {threshold:.2f} × max({max_gate:.4f}) = {effective_threshold:.4f}")
+        else:
+            effective_threshold = threshold
         
         # Create DataFrame
         relationships = []
@@ -98,7 +109,7 @@ class CausalityAnalyzer:
             if i == self.target_stock_idx:
                 continue  # Skip self
             
-            if gates[i] >= threshold:
+            if gates[i] >= effective_threshold:
                 relationships.append({
                     'source_stock': stock_name,
                     'target_stock': self.stock_name,
@@ -263,11 +274,28 @@ class CausalityAnalyzer:
         print(f"CAUSAL ANALYSIS REPORT: {self.stock_name}")
         print("="*80)
         
+        # Get all gate values for debugging
+        causal_graph = self.model.get_causal_graph(self.target_stock_idx)
+        gates = causal_graph['gates']
+        print(f"\nGate statistics:")
+        print(f"  Min: {gates.min():.6f}")
+        print(f"  Max: {gates.max():.6f}")
+        print(f"  Mean: {gates.mean():.6f}")
+        print(f"  Median: {np.median(gates):.6f}")
+        print(f"  Gates > 0.05: {(gates > 0.05).sum()}")
+        print(f"  Gates > 0.10: {(gates > 0.10).sum()}")
+        print(f"  Gates > 0.15: {(gates > 0.15).sum()}")
+        
         relationships = self.get_causal_relationships()
         
         if len(relationships) == 0:
-            print("\nNo significant causal relationships found.")
-            print(f"(Threshold: {self.config.CAUSAL_THRESHOLD})")
+            if getattr(self.config, 'USE_RELATIVE_THRESHOLD', False):
+                print("\nNo significant causal relationships found.")
+                print(f"(Relative threshold: {self.config.CAUSAL_THRESHOLD:.2f} × max gate value)")
+            else:
+                print("\nNo significant causal relationships found.")
+                print(f"(Absolute threshold: {self.config.CAUSAL_THRESHOLD})")
+            print("\nTry lowering the threshold or training for more epochs.")
             return
         
         print(f"\nFound {len(relationships)} significant causal relationships")

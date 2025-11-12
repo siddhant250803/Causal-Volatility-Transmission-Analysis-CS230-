@@ -48,7 +48,7 @@ def list_available_stocks(data_path: str, max_stocks: int = 50):
     return data_loader.stock_names
 
 
-def train_for_stock(stock_name: str, num_stocks: int = 50, epochs: int = None):
+def train_for_stock(stock_name: str, num_stocks: int = 50, epochs: int = None, force_retrain: bool = False):
     """
     Train model for a specific stock.
     
@@ -56,6 +56,7 @@ def train_for_stock(stock_name: str, num_stocks: int = 50, epochs: int = None):
         stock_name: Name of the stock ticker
         num_stocks: Number of stocks to include in analysis
         epochs: Number of training epochs (None = use config default)
+        force_retrain: If True, retrain even if checkpoint exists
     """
     # Initialize config
     config = Config()
@@ -105,7 +106,38 @@ def train_for_stock(stock_name: str, num_stocks: int = 50, epochs: int = None):
     print("\nStep 4: Training model...")
     trainer = Trainer(config, target_stock_idx, stock_name)
     trainer.setup_model(n_stocks=len(data_loader.stock_names))
-    trainer.train(train_loader, val_loader)
+    
+    # Check if checkpoint exists and is compatible
+    checkpoint_path = f'checkpoints/{stock_name}_best.pt'
+    should_train = force_retrain
+    
+    if os.path.exists(checkpoint_path) and not force_retrain:
+        print(f"\n✓ Found existing checkpoint: {checkpoint_path}")
+        # Check if checkpoint is compatible (same number of stocks)
+        try:
+            checkpoint = torch.load(checkpoint_path, map_location=config.DEVICE, weights_only=False)
+            checkpoint_n_stocks = checkpoint['model_state_dict']['attention.lags'].shape[0]
+            
+            if checkpoint_n_stocks == len(data_loader.stock_names):
+                print("Loading trained model (use --force_retrain to retrain)...")
+                trainer.load_checkpoint('best')
+            else:
+                print(f"⚠️  Checkpoint has {checkpoint_n_stocks} stocks, but you requested {len(data_loader.stock_names)} stocks.")
+                print("Checkpoint incompatible. Training new model...")
+                should_train = True
+        except Exception as e:
+            print(f"⚠️  Error loading checkpoint: {e}")
+            print("Training new model...")
+            should_train = True
+    else:
+        should_train = True
+    
+    if should_train:
+        if force_retrain:
+            print("Force retraining enabled. Training new model...")
+        else:
+            print("No existing checkpoint found. Training new model...")
+        trainer.train(train_loader, val_loader)
     
     # Test
     print("\n" + "="*80)
@@ -131,7 +163,8 @@ def train_for_stock(stock_name: str, num_stocks: int = 50, epochs: int = None):
     return True
 
 
-def analyze_stock(stock_name: str, top_k: int = 10, threshold: float = 0.1):
+def analyze_stock(stock_name: str, top_k: int = 10, threshold: float = 0.1, 
+                  run_granger: bool = True):
     """
     Analyze causal relationships for a stock.
     
@@ -139,6 +172,7 @@ def analyze_stock(stock_name: str, top_k: int = 10, threshold: float = 0.1):
         stock_name: Name of the stock ticker
         top_k: Number of top relationships to show
         threshold: Minimum causal strength threshold
+        run_granger: Whether to run Granger causality tests
     """
     config = Config()
     config.TOP_K_INFLUENCES = top_k
@@ -157,8 +191,76 @@ def analyze_stock(stock_name: str, top_k: int = 10, threshold: float = 0.1):
         print(f"  python run_analysis.py --train --stock {stock_name}")
         return False
     
-    # Generate report
+    # Generate attention-based report
     analyzer.generate_report()
+    
+    # Run Granger causality tests if requested
+    if run_granger:
+        print("\n" + "="*80)
+        print("GRANGER CAUSALITY ANALYSIS")
+        print("="*80)
+        
+        from utils import GrangerCausalityTester, compute_realized_volatility_for_granger
+        
+        # Load data for Granger testing
+        print("\nLoading data for Granger causality tests...")
+        data_loader = StockDataLoader(config.DATA_PATH, config)
+        data_loader.load_data(max_stocks=len(analyzer.stock_names))
+        
+        # Get the target stock index
+        target_idx = analyzer.target_stock_idx
+        
+        # Compute volatility
+        volatility = compute_realized_volatility_for_granger(
+            data_loader.returns, 
+            window=config.LOOKBACK_WINDOW
+        )
+        
+        # Run Granger tests
+        print(f"Running Granger causality tests (this may take a minute)...")
+        tester = GrangerCausalityTester(max_lag=config.MAX_LAG)
+        granger_results = tester.test_all_sources_to_target(
+            volatility,
+            target_idx,
+            analyzer.stock_names
+        )
+        
+        # Compare with attention results (use all gates for comparison)
+        attention_results = analyzer.get_causal_relationships(threshold=0, use_relative=False)  # Get all
+        comparison = tester.compare_with_attention_gates(granger_results, attention_results)
+        
+        # Print Granger results
+        significant = granger_results[granger_results['granger_causes']]
+        print(f"\n✓ Found {len(significant)} stocks with significant Granger causality (p < 0.05)")
+        
+        if len(significant) > 0:
+            print(f"\nTop 10 Granger-causal relationships:")
+            print(significant.head(10)[['source_stock', 'p_value', 'best_lag', 'f_statistic']].to_string(index=False))
+        
+        # Print comparison
+        print(f"\n{'─'*80}")
+        print("COMPARISON: Attention Gates vs. Granger Causality")
+        print(f"{'─'*80}")
+        
+        attention_significant = (comparison['causal_strength'].fillna(0) > threshold).sum()
+        granger_significant = comparison['granger_causes'].fillna(False).sum()
+        both_agree = comparison['methods_agree'].sum()
+        
+        print(f"Attention method found:  {attention_significant} significant relationships")
+        print(f"Granger method found:    {granger_significant} significant relationships")
+        print(f"Both methods agree on:   {both_agree} relationships")
+        
+        if both_agree > 0:
+            print(f"\nStocks validated by BOTH methods:")
+            validated = comparison[comparison['methods_agree']]
+            print(validated[['source_stock', 'p_value', 'causal_strength']].to_string(index=False))
+        
+        # Save results
+        os.makedirs('results', exist_ok=True)
+        granger_results.to_csv(f'results/{stock_name}_granger_causality.csv', index=False)
+        comparison.to_csv(f'results/{stock_name}_comparison.csv', index=False)
+        print(f"\n✓ Granger results saved to: results/{stock_name}_granger_causality.csv")
+        print(f"✓ Comparison saved to: results/{stock_name}_comparison.csv")
     
     # Create visualizations
     print("\nGenerating visualizations...")
@@ -208,10 +310,14 @@ Examples:
     parser.add_argument('--num_stocks', type=int, default=50, 
                        help='Number of stocks to include (default: 50)')
     parser.add_argument('--epochs', type=int, help='Number of training epochs')
+    parser.add_argument('--force_retrain', action='store_true',
+                       help='Force retrain even if checkpoint exists')
     parser.add_argument('--top_k', type=int, default=10, 
                        help='Number of top relationships to show (default: 10)')
     parser.add_argument('--threshold', type=float, default=0.1, 
                        help='Minimum causal strength threshold (default: 0.1)')
+    parser.add_argument('--no_granger', action='store_true',
+                       help='Skip Granger causality testing (faster)')
     
     args = parser.parse_args()
     
@@ -226,7 +332,7 @@ Examples:
     
     # Train
     if args.train:
-        success = train_for_stock(args.stock, args.num_stocks, args.epochs)
+        success = train_for_stock(args.stock, args.num_stocks, args.epochs, args.force_retrain)
         if not success:
             return
     
@@ -237,11 +343,11 @@ Examples:
             if not os.path.exists(f'checkpoints/{args.stock}_best.pt'):
                 print(f"\nWarning: No trained model found for {args.stock}")
                 print("Training model first...")
-                success = train_for_stock(args.stock, args.num_stocks, args.epochs)
+                success = train_for_stock(args.stock, args.num_stocks, args.epochs, False)
                 if not success:
                     return
         
-        analyze_stock(args.stock, args.top_k, args.threshold)
+        analyze_stock(args.stock, args.top_k, args.threshold, run_granger=not args.no_granger)
     
     # If no action specified, show help
     if not (args.list or args.train or args.analyze):
