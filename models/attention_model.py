@@ -134,7 +134,7 @@ class CausalAttentionModel(nn.Module):
         # Embedding layers for stock returns and volatility
         # Now accepts [returns, volatility] pairs (2 features per timestep)
         self.stock_embedding = nn.Linear(2, d_model)
-        self.target_embedding = nn.Linear(lookback + 1, d_model)  # Target stock history + volatility
+        self.target_embedding = nn.Linear(lookback * 2, d_model)  # Target stock: returns history + volatility history
         
         # Lagged attention mechanism
         self.attention = LearnedLagAttention(n_stocks, d_model, d_k, d_v, max_lag)
@@ -157,7 +157,7 @@ class CausalAttentionModel(nn.Module):
         
         Args:
             X_returns: Historical returns (batch_size, lookback, n_stocks)
-            X_volatility: Current volatility (batch_size, n_stocks)
+            X_volatility: Historical volatility (batch_size, lookback, n_stocks)
             target_stock_idx: Index of target stock to predict
             return_attention: Whether to return attention weights and gates
             
@@ -169,23 +169,19 @@ class CausalAttentionModel(nn.Module):
         
         # Embed all stocks' historical returns + volatility
         # X_returns: (batch_size, lookback, n_stocks)
-        # X_volatility: (batch_size, n_stocks) - current volatility
+        # X_volatility: (batch_size, lookback, n_stocks) - historical volatility
         
-        # Expand volatility to match lookback dimension
-        # Use current volatility for all timesteps (simpler approach)
-        # For more sophisticated version, compute historical volatility in dataloader
-        X_vol_expanded = X_volatility.unsqueeze(1).expand(-1, self.lookback, -1)  # (batch_size, lookback, n_stocks)
-        
-        # Concatenate returns and volatility: (batch_size, lookback, n_stocks, 2)
-        stock_features = torch.stack([X_returns, X_vol_expanded], dim=-1)
+        # Concatenate returns and volatility directly (both have lookback dimension)
+        # (batch_size, lookback, n_stocks, 2)
+        stock_features = torch.stack([X_returns, X_volatility], dim=-1)
         
         # Embed the concatenated features: (batch_size, lookback, n_stocks, d_model)
         all_stock_embs = self.stock_embedding(stock_features)
         
-        # Embed target stock information (its own history + current volatility)
+        # Embed target stock information (its own history + historical volatility)
         target_history = X_returns[:, :, target_stock_idx]  # (batch_size, lookback)
-        target_vol = X_volatility[:, target_stock_idx:target_stock_idx+1]  # (batch_size, 1)
-        target_info = torch.cat([target_history, target_vol], dim=1)  # (batch_size, lookback+1)
+        target_vol_history = X_volatility[:, :, target_stock_idx]  # (batch_size, lookback)
+        target_info = torch.cat([target_history, target_vol_history], dim=1)  # (batch_size, lookback*2)
         target_emb = self.target_embedding(target_info)  # (batch_size, d_model)
         
         # Apply attention to get context from other stocks

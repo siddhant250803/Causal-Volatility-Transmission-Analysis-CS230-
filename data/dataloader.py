@@ -132,7 +132,7 @@ class StockDataLoader:
             
         Returns:
             X_returns: (n_samples, lookback, n_stocks) - historical returns
-            X_volatility: (n_samples, n_stocks) - current volatility
+            X_volatility: (n_samples, lookback, n_stocks) - historical volatility
             y: (n_samples, n_stocks) - target volatility (next interval)
         """
         if lookback is None:
@@ -144,12 +144,12 @@ class StockDataLoader:
         n_samples = n_timesteps - lookback
         
         X_returns = np.zeros((n_samples, lookback, n_stocks), dtype=np.float32)
-        X_volatility = np.zeros((n_samples, n_stocks), dtype=np.float32)
+        X_volatility = np.zeros((n_samples, lookback, n_stocks), dtype=np.float32)  # Historical volatility
         y = np.zeros((n_samples, n_stocks), dtype=np.float32)
         
         for i in range(n_samples):
             X_returns[i] = self.normalized_returns[i:i+lookback]
-            X_volatility[i] = self.normalized_volatility[i+lookback-1]
+            X_volatility[i] = self.normalized_volatility[i:i+lookback]  # Historical volatility over lookback window
             y[i] = self.normalized_volatility[i+lookback]
             
         print(f"Created {n_samples} sequences.")
@@ -197,7 +197,7 @@ class VolatilityDataset(Dataset):
         
         Args:
             X_returns: Historical returns (n_samples, lookback, n_stocks)
-            X_volatility: Current volatility (n_samples, n_stocks)
+            X_volatility: Historical volatility (n_samples, lookback, n_stocks)
             y: Target volatility (n_samples, n_stocks)
             target_stock_idx: If specified, only predict for this stock
         """
