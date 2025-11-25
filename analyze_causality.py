@@ -67,7 +67,8 @@ class CausalityAnalyzer:
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Model checkpoint not found at {checkpoint_path}. Please train the model first.")
         
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        # weights_only=False needed for PyTorch 2.6+ when checkpoint contains numpy arrays
+        checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
         

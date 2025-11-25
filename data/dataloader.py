@@ -61,6 +61,12 @@ class StockDataLoader:
         # Replace missing values with 0
         self.returns[np.abs(self.returns - self.config.MISSING_VALUE) < 1e-10] = 0
         
+        # Handle NaN values (replace with 0)
+        nan_count = np.isnan(self.returns).sum()
+        if nan_count > 0:
+            print(f"Warning: Found {nan_count} NaN values, replacing with 0")
+            self.returns = np.nan_to_num(self.returns, nan=0.0)
+        
         print(f"Loaded data: {len(self.dates)} time steps, {len(self.stock_names)} stocks")
         print(f"Date range: {self.dates[0]} to {self.dates[-1]}")
         
@@ -84,6 +90,7 @@ class StockDataLoader:
             # RMS of returns over window
             self.volatility[i] = np.sqrt(np.mean(self.returns[i-window:i]**2, axis=0))
         
+        #MIA: maybe exclude those in training part?
         # Set initial values to mean volatility to avoid zeros
         for i in range(window):
             self.volatility[i] = self.volatility[window]

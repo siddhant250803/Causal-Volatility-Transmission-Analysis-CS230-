@@ -212,7 +212,8 @@ class Trainer:
         """Load model checkpoint."""
         path = f'checkpoints/{self.stock_name}_{name}.pt'
         if os.path.exists(path):
-            checkpoint = torch.load(path, map_location=self.device)
+            # weights_only=False needed for PyTorch 2.6+ when checkpoint contains numpy arrays
+            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             print(f"Loaded checkpoint from {path}")
