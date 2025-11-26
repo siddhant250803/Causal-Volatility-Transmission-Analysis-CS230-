@@ -1,5 +1,5 @@
 ================================================================================
-        CAUSAL VOLATILITY TRANSMISSION - SYSTEM ARCHITECTURE
+   CAUSAL VOLATILITY TRANSMISSION - SYSTEM ARCHITECTURE (with Granger Validation)
 ================================================================================
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -88,11 +88,10 @@ INPUT DATA (HF_Returns_Stocks.csv)
 ├──────────────────────────────────────────────────────────────────────────────┤
 │                                                                               │
 │   L = MSE(prediction, target)         ← Prediction accuracy                  │
-│     + λ · ||g||_{2,1}                 ← Gate sparsity (L2,1 norm)            │
 │     + γ · TV(α)                       ← Attention smoothness                 │
 │     + η · IRM                         ← Invariant risk minimization          │
 │                                                                               │
-│   Default: λ=0.01, γ=0.001, η=0.001                                          │
+│   Default: λ=0.0 (disabled), γ=0.001, η=0.001                                │
 │                                                                               │
 └──────────────────────────────────────────────────────────────────────────────┘
 │
@@ -139,6 +138,40 @@ INPUT DATA (HF_Returns_Stocks.csv)
 │   │    • Causal network bar chart                                        │    │
 │   │    • Lag distribution histogram                                      │    │
 │   │    • Causal strength heatmap                                         │    │
+│   └────────────────────────────────────────────────────────────────────┘    │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+│
+▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                      GRANGER CAUSALITY VALIDATION                             │
+│                     (utils/granger_causality.py)                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│   STATISTICAL VALIDATION                                                      │
+│   ┌────────────────────────────────────────────────────────────────────┐    │
+│   │ For each source → target pair:                                      │    │
+│   │   • Run F-tests at lags 1-12                                        │    │
+│   │   • Test null hypothesis: "source does NOT Granger-cause target"   │    │
+│   │   • Significant if p < 0.05                                         │    │
+│   └────────────────────────────────────────────────────────────────────┘    │
+│                                                                               │
+│   COMPARISON & VALIDATION                                                     │
+│   ┌────────────────────────────────────────────────────────────────────┐    │
+│   │ Compare two methods:                                                 │    │
+│   │   1. Neural Network Gates (learned attention)                       │    │
+│   │   2. Granger Causality (classical F-tests)                          │    │
+│   │                                                                      │    │
+│   │ Report:                                                              │    │
+│   │   • Relationships found by attention method                         │    │
+│   │   • Relationships found by Granger method                           │    │
+│   │   • Relationships validated by BOTH (high confidence)               │    │
+│   └────────────────────────────────────────────────────────────────────┘    │
+│                                                                               │
+│   OUTPUT FILES                                                                │
+│   ┌────────────────────────────────────────────────────────────────────┐    │
+│   │ • results/STOCK_granger_causality.csv                               │    │
+│   │ • results/STOCK_comparison.csv                                      │    │
 │   └────────────────────────────────────────────────────────────────────┘    │
 │                                                                               │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -205,9 +238,11 @@ models/
 utils/
   ├─> __init__.py
   ├─> losses.py
-  │    └─> CausalRegularizedLoss (MSE + gate + TV + IRM)
-  └─> metrics.py
-       └─> calculate_metrics (RMSE, MAE, R²)
+  │    └─> CausalRegularizedLoss (MSE + TV + IRM)
+  ├─> metrics.py
+  │    └─> calculate_metrics (RMSE, MAE, R²)
+  └─> granger_causality.py
+       └─> GrangerCausalityTester (F-tests, validation)
 
 train.py
   └─> Trainer class (training loop, checkpointing, validation)

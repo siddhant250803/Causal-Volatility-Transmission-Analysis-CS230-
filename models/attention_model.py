@@ -34,11 +34,12 @@ class LearnedLagAttention(nn.Module):
         self.W_k = nn.Linear(d_model, d_k, bias=False)
         self.W_v = nn.Linear(d_model, d_v, bias=False)
         
-        # Learned lag parameters (initialized to middle of range)
-        self.lags = nn.Parameter(torch.ones(n_stocks) * (max_lag // 2))
+        # Learned lag parameters (initialized uniformly across range)
+        self.lags = nn.Parameter(torch.rand(n_stocks) * max_lag)
         
         # Causal gates (controls which stocks influence others)
-        self.causal_gates = nn.Parameter(torch.ones(n_stocks) * 0.5)
+        # Initialize at 0.0 so sigmoid(0.0) = 0.5 (neutral, let training determine)
+        self.causal_gates = nn.Parameter(torch.randn(n_stocks) * 0.1)
         
     def forward(self, query_stock_emb: torch.Tensor, 
                 all_stock_embs: torch.Tensor,
@@ -67,17 +68,32 @@ class LearnedLagAttention(nn.Module):
         normalized_lags = torch.sigmoid(self.lags) * self.max_lag  # (n_stocks,)
         
         # Compute keys and values for each stock with learned lags
+        # Use soft (differentiable) temporal indexing instead of hard rounding
         context_list = []
         attention_weights_list = []
         
         for stock_idx in range(n_stocks):
-            # Get the lag for this stock
+            # Get the lag for this stock (continuous value)
             lag = normalized_lags[stock_idx]
-            lag_int = int(torch.round(lag).item())
-            lag_int = max(0, min(lag_int, lookback - 1))
             
-            # Get stock embedding at the lagged time
-            stock_emb = all_stock_embs[:, lag_int, stock_idx, :]  # (batch_size, d_model)
+            # Soft indexing: interpolate between adjacent time steps
+            # This makes the operation differentiable
+            lag_floor = torch.floor(lag)
+            lag_ceil = torch.ceil(lag)
+            
+            # Clamp to valid range
+            lag_floor = torch.clamp(lag_floor, 0, lookback - 1).long()
+            lag_ceil = torch.clamp(lag_ceil, 0, lookback - 1).long()
+            
+            # Interpolation weight
+            alpha = lag - lag_floor.float()
+            
+            # Get embeddings at floor and ceil
+            emb_floor = all_stock_embs[:, lag_floor, stock_idx, :]  # (batch_size, d_model)
+            emb_ceil = all_stock_embs[:, lag_ceil, stock_idx, :]    # (batch_size, d_model)
+            
+            # Linearly interpolate (differentiable)
+            stock_emb = (1 - alpha) * emb_floor + alpha * emb_ceil  # (batch_size, d_model)
             
             # Compute key and value
             k = self.W_k(stock_emb)  # (batch_size, d_k)
@@ -131,10 +147,14 @@ class CausalAttentionModel(nn.Module):
         self.lookback = lookback
         self.d_model = d_model
         
-        # Embedding layers for stock returns and volatility
-        # Now accepts [returns, volatility] pairs (2 features per timestep)
-        self.stock_embedding = nn.Linear(2, d_model)
-        self.target_embedding = nn.Linear(lookback * 2, d_model)  # Target stock: returns history + volatility history
+        # Embedding layers for stock returns
+        self.stock_embedding = nn.Linear(1, d_model)
+        # Target stock history + volatility (use MLP for larger lookback)
+        self.target_embedding = nn.Sequential(
+            nn.Linear(lookback + 1, 128),
+            nn.ReLU(),
+            nn.Linear(128, d_model)
+        )
         
         # Lagged attention mechanism
         self.attention = LearnedLagAttention(n_stocks, d_model, d_k, d_v, max_lag)

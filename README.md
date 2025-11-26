@@ -1,12 +1,13 @@
-# Causal Volatility Transmission Framework
+# Causal Volatility Transmission Analysis
 
 ## Overview
 
-This framework implements an **attention-based causal inference model** to map intraday volatility transmission across stocks using high-frequency (5-minute) trading data. The model learns:
+This framework implements an **attention-based causal inference model** with **Granger causality validation** to map intraday volatility transmission across stocks using high-frequency (5-minute) trading data. The model learns:
 
-1. **Which stocks influence others** (causal direction)
-2. **How strong the influence is** (causal strength via learned gates)
+1. **Which stocks influence others** (causal direction via learned gates)
+2. **How strong the influence is** (causal strength quantified)
 3. **The time delay of influence** (learned lags in 5-minute intervals)
+4. **Statistical validation** (Granger causality F-tests confirm relationships)
 
 Based on the CS230 project: *"Mapping Intraday Volatility Transmission Across 300 Stocks Using Attention-Based Causal Inference"*
 
@@ -24,7 +25,8 @@ Based on the CS230 project: *"Mapping Intraday Volatility Transmission Across 30
 ├── utils/
 │   ├── __init__.py
 │   ├── losses.py           # Loss functions with regularization
-│   └── metrics.py          # Evaluation metrics
+│   ├── metrics.py          # Evaluation metrics
+│   └── granger_causality.py # Granger causality validation
 ├── train.py                # Training script
 ├── analyze_causality.py    # Causal analysis and visualization
 ├── run_analysis.py         # Main interactive script (USE THIS!)
@@ -56,7 +58,7 @@ python run_analysis.py --train --stock AAPL
 ```
 
 ### 3. Analyze Causal Relationships
-After training, analyze which stocks causally influence AAPL:
+After training, analyze which stocks causally influence AAPL (includes Granger causality validation):
 ```bash
 python run_analysis.py --analyze --stock AAPL
 ```
@@ -64,6 +66,11 @@ python run_analysis.py --analyze --stock AAPL
 ### 4. Train and Analyze (One Command)
 ```bash
 python run_analysis.py --train --analyze --stock AAPL
+```
+
+### 5. Skip Granger Testing (Faster)
+```bash
+python run_analysis.py --analyze --stock AAPL --no_granger
 ```
 
 ## Advanced Usage
@@ -107,14 +114,22 @@ Edit `config.py` to modify:
 ### Loss Function
 
 ```
-L = MSE + λ·||g||_{2,1} + γ·TV(α) + η·IRM
+L = MSE + γ·TV(α) + η·IRM
 ```
 
 Where:
 - **MSE**: Prediction accuracy
-- **||g||_{2,1}**: Group lasso on causal gates (sparsity)
 - **TV(α)**: Total variation on attention weights (smoothness)
 - **IRM**: Invariant risk minimization (regime stability)
+
+**Default**: λ=0.0, γ=0.001, η=0.001
+
+### Granger Causality Validation
+
+After training, the framework automatically runs **Granger causality tests** (F-tests) to validate learned relationships:
+- Tests if source stock Granger-causes target stock
+- Compares neural network gates with statistical causality
+- Reports relationships validated by **both methods**
 
 ## Output
 
@@ -138,7 +153,10 @@ source_stock  target_stock  causal_strength  lag_minutes  lag_intervals
 ```
 
 ### 3. CSV Results
-Saved to `results/{STOCK}_causal_relationships.csv`
+Multiple result files saved to `results/`:
+- `{STOCK}_causal_relationships.csv` - Attention-based gates
+- `{STOCK}_granger_causality.csv` - Granger test results
+- `{STOCK}_comparison.csv` - Side-by-side comparison
 
 ### 4. Visualizations
 Saved to `plots/`:
@@ -146,6 +164,12 @@ Saved to `plots/`:
 - **Causal Network**: Bar chart showing top influences with lag information
 - **Lag Distribution**: Histogram and scatter plot of lags vs. strengths
 - **Heatmap**: Visual representation of causal influence matrix
+
+### 5. Granger Causality Report
+Terminal output showing:
+- Stocks with significant Granger causality (p < 0.05)
+- Comparison: Attention vs. Granger methods
+- Relationships validated by **both** methods
 
 ## Example Workflow
 
@@ -169,9 +193,11 @@ python run_analysis.py --analyze --stock MSFT --top_k 15
 
 ## Key Features
 
+✅ **Granger causality validation** - Statistical confirmation of learned relationships  
 ✅ **Modular architecture** - Easy to extend and customize  
 ✅ **Learned time lags** - Discovers temporal dependencies automatically  
 ✅ **Causal interpretability** - Clear influence paths with strengths  
+✅ **Dual validation** - Neural network gates + classical F-tests  
 ✅ **Regularized learning** - Sparse, stable, and smooth causal graphs  
 ✅ **Interactive interface** - Simple command-line usage  
 ✅ **Comprehensive visualization** - Multiple plot types for analysis  

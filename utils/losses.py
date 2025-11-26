@@ -12,9 +12,11 @@ class CausalRegularizedLoss(nn.Module):
     - Group lasso on causal gates (sparsity)
     - Total variation on attention weights (temporal smoothness)
     - Invariant risk minimization (stability across regimes)
+    - Lag diversity penalty (encourages diverse temporal lags)
     """
     
-    def __init__(self, lambda_gate: float = 0.01, gamma_tv: float = 0.001, eta_irm: float = 0.001):
+    def __init__(self, lambda_gate: float = 0.01, gamma_tv: float = 0.001, 
+                 eta_irm: float = 0.001, beta_lag_diversity: float = 0.01):
         """
         Initialize loss function.
         
@@ -22,11 +24,13 @@ class CausalRegularizedLoss(nn.Module):
             lambda_gate: Weight for group lasso penalty on gates
             gamma_tv: Weight for total variation penalty
             eta_irm: Weight for IRM penalty
+            beta_lag_diversity: Weight for lag diversity penalty
         """
         super().__init__()
         self.lambda_gate = lambda_gate
         self.gamma_tv = gamma_tv
         self.eta_irm = eta_irm
+        self.beta_lag_diversity = beta_lag_diversity
         self.mse = nn.MSELoss()
         
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor, 
@@ -73,17 +77,36 @@ class CausalRegularizedLoss(nn.Module):
                 loss_env2 = self.mse(predictions[mid:], targets[mid:])
                 irm_penalty = torch.abs(loss_env1 - loss_env2)
         
+        # Lag diversity penalty - encourage variance in learned lags
+        # Only penalize lags for stocks with significant causal influence
+        lag_diversity_penalty = torch.tensor(0.0, device=predictions.device)
+        if self.beta_lag_diversity > 0:
+            # Get normalized lags
+            lags = torch.sigmoid(model.attention.lags) * model.attention.max_lag
+            # Use all gates (softly weighted) to encourage diversity
+            # Weight by gates squared to focus on stronger connections
+            weights = causal_gates ** 2
+            if weights.sum() > 0.01:  # If there's any meaningful signal
+                # Penalize low variance (negative sign to maximize variance)
+                # Use weighted variance
+                mean_lag = torch.sum(lags * weights) / weights.sum()
+                lag_variance = torch.sum(weights * (lags - mean_lag) ** 2) / weights.sum()
+                # Only penalize if variance is very low
+                lag_diversity_penalty = torch.relu(0.5 - lag_variance)  # Penalize if var < 0.5
+        
         # Total loss
         total_loss = (mse_loss + 
                      self.lambda_gate * gate_penalty + 
                      self.gamma_tv * tv_penalty + 
-                     self.eta_irm * irm_penalty)
+                     self.eta_irm * irm_penalty +
+                     self.beta_lag_diversity * lag_diversity_penalty)
         
         return {
             'total_loss': total_loss,
             'mse_loss': mse_loss.item(),
             'gate_penalty': gate_penalty.item(),
             'tv_penalty': tv_penalty.item(),
-            'irm_penalty': irm_penalty.item()
+            'irm_penalty': irm_penalty.item(),
+            'lag_diversity_penalty': lag_diversity_penalty.item()
         }
 

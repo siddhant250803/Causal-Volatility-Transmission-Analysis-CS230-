@@ -66,7 +66,8 @@ class Trainer:
         self.criterion = CausalRegularizedLoss(
             lambda_gate=self.config.LAMBDA_GATE,
             gamma_tv=self.config.GAMMA_TV,
-            eta_irm=self.config.ETA_IRM
+            eta_irm=self.config.ETA_IRM,
+            beta_lag_diversity=self.config.BETA_LAG_DIVERSITY
         )
         
         print(f"Model initialized with {sum(p.numel() for p in self.model.parameters())} parameters")
@@ -212,7 +213,6 @@ class Trainer:
         """Load model checkpoint."""
         path = f'checkpoints/{self.stock_name}_{name}.pt'
         if os.path.exists(path):
-            # weights_only=False needed for PyTorch 2.6+ when checkpoint contains numpy arrays
             checkpoint = torch.load(path, map_location=self.device, weights_only=False)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
