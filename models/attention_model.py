@@ -177,7 +177,7 @@ class CausalAttentionModel(nn.Module):
         
         Args:
             X_returns: Historical returns (batch_size, lookback, n_stocks)
-            X_volatility: Current volatility (batch_size, n_stocks)
+            X_volatility: Historical volatility (batch_size, lookback, n_stocks)
             target_stock_idx: Index of target stock to predict
             return_attention: Whether to return attention weights and gates
             
@@ -187,14 +187,21 @@ class CausalAttentionModel(nn.Module):
         """
         batch_size = X_returns.shape[0]
         
-        # Embed all stocks' historical returns
-        # (batch_size, lookback, n_stocks, 1) -> (batch_size, lookback, n_stocks, d_model)
-        all_stock_embs = self.stock_embedding(X_returns.unsqueeze(-1))
+        # Embed all stocks' historical returns + volatility
+        # X_returns: (batch_size, lookback, n_stocks)
+        # X_volatility: (batch_size, lookback, n_stocks) - historical volatility
         
-        # Embed target stock information (its own history + current volatility)
+        # Concatenate returns and volatility directly (both have lookback dimension)
+        # (batch_size, lookback, n_stocks, 2)
+        stock_features = torch.stack([X_returns, X_volatility], dim=-1)
+        
+        # Embed the concatenated features: (batch_size, lookback, n_stocks, d_model)
+        all_stock_embs = self.stock_embedding(stock_features)
+        
+        # Embed target stock information (its own history + historical volatility)
         target_history = X_returns[:, :, target_stock_idx]  # (batch_size, lookback)
-        target_vol = X_volatility[:, target_stock_idx:target_stock_idx+1]  # (batch_size, 1)
-        target_info = torch.cat([target_history, target_vol], dim=1)  # (batch_size, lookback+1)
+        target_vol_history = X_volatility[:, :, target_stock_idx]  # (batch_size, lookback)
+        target_info = torch.cat([target_history, target_vol_history], dim=1)  # (batch_size, lookback*2)
         target_emb = self.target_embedding(target_info)  # (batch_size, d_model)
         
         # Apply attention to get context from other stocks
