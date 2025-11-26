@@ -34,12 +34,13 @@ class LearnedLagAttention(nn.Module):
         self.W_k = nn.Linear(d_model, d_k, bias=False)
         self.W_v = nn.Linear(d_model, d_v, bias=False)
         
-        # Learned lag parameters (initialized uniformly across range)
-        self.lags = nn.Parameter(torch.rand(n_stocks) * max_lag)
+        # Learned lag parameters (initialized uniformly in logit space for better gradients)
+        # Initialize to encourage diverse lags: uniform in [-2, 2] logit space
+        self.lags = nn.Parameter(torch.randn(n_stocks) * 1.0)
         
         # Causal gates (controls which stocks influence others)
-        # Initialize at 0.0 so sigmoid(0.0) = 0.5 (neutral, let training determine)
-        self.causal_gates = nn.Parameter(torch.randn(n_stocks) * 0.1)
+        # Initialize slightly positive so sigmoid starts around 0.6-0.7 (allow learning)
+        self.causal_gates = nn.Parameter(torch.randn(n_stocks) * 0.5 + 0.5)
         
     def forward(self, query_stock_emb: torch.Tensor, 
                 all_stock_embs: torch.Tensor,
@@ -147,11 +148,11 @@ class CausalAttentionModel(nn.Module):
         self.lookback = lookback
         self.d_model = d_model
         
-        # Embedding layers for stock returns
-        self.stock_embedding = nn.Linear(1, d_model)
-        # Target stock history + volatility (use MLP for larger lookback)
+        # Embedding layers for stock returns + volatility (2D features)
+        self.stock_embedding = nn.Linear(2, d_model)
+        # Target stock history + volatility (2 * lookback features)
         self.target_embedding = nn.Sequential(
-            nn.Linear(lookback + 1, 128),
+            nn.Linear(lookback * 2, 128),
             nn.ReLU(),
             nn.Linear(128, d_model)
         )

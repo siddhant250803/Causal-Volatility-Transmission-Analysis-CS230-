@@ -87,25 +87,37 @@ class StockDataLoader:
         
         # Compute rolling standard deviation
         for i in range(window, n_timesteps):
-            # RMS of returns over window
+            # RMS of returns over window (realized volatility)
             self.volatility[i] = np.sqrt(np.mean(self.returns[i-window:i]**2, axis=0))
         
-        #MIA: maybe exclude those in training part?
-        # Set initial values to mean volatility to avoid zeros
-        for i in range(window):
-            self.volatility[i] = self.volatility[window]
+        # Leave initial values as zero - these samples will be excluded when creating sequences
+        # This prevents artificial patterns from contaminating the data
             
         print(f"Volatility computed. Mean: {np.mean(self.volatility):.6f}, Std: {np.std(self.volatility):.6f}")
         
-    def normalize_data(self):
-        """Normalize returns and volatility per stock using z-score."""
+    def normalize_data(self, train_end_idx: Optional[int] = None):
+        """
+        Normalize returns and volatility per stock using z-score.
+        
+        Args:
+            train_end_idx: If provided, compute statistics only on training data [:train_end_idx]
+                          to avoid data leakage. If None, use all data (for backward compatibility).
+        """
         print("Normalizing data...")
+        
+        # Determine range for computing statistics
+        if train_end_idx is None:
+            stat_end = len(self.returns)
+            print("WARNING: Computing statistics on all data (including test set)")
+        else:
+            stat_end = train_end_idx
+            print(f"Computing statistics on training data only (first {stat_end} samples)")
         
         # Normalize returns per stock
         self.normalized_returns = np.zeros_like(self.returns)
         for i in range(len(self.stock_names)):
-            mean = np.mean(self.returns[:, i])
-            std = np.std(self.returns[:, i])
+            mean = np.mean(self.returns[:stat_end, i])
+            std = np.std(self.returns[:stat_end, i])
             if std > 0:
                 self.normalized_returns[:, i] = (self.returns[:, i] - mean) / std
             else:
@@ -114,8 +126,8 @@ class StockDataLoader:
         # Normalize volatility per stock
         self.normalized_volatility = np.zeros_like(self.volatility)
         for i in range(len(self.stock_names)):
-            mean = np.mean(self.volatility[:, i])
-            std = np.std(self.volatility[:, i])
+            mean = np.mean(self.volatility[:stat_end, i])
+            std = np.std(self.volatility[:stat_end, i])
             if std > 0:
                 self.normalized_volatility[:, i] = (self.volatility[:, i] - mean) / std
             else:
@@ -123,12 +135,13 @@ class StockDataLoader:
                 
         print("Normalization complete.")
         
-    def create_sequences(self, lookback: int = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def create_sequences(self, lookback: int = None, volatility_window: int = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Create sequences for training.
         
         Args:
             lookback: Number of past intervals to include
+            volatility_window: Window size used for volatility computation (to skip initial samples)
             
         Returns:
             X_returns: (n_samples, lookback, n_stocks) - historical returns
@@ -137,20 +150,28 @@ class StockDataLoader:
         """
         if lookback is None:
             lookback = self.config.LOOKBACK_WINDOW
+        if volatility_window is None:
+            volatility_window = self.config.LOOKBACK_WINDOW
             
         print(f"Creating sequences with lookback={lookback}...")
         
         n_timesteps, n_stocks = self.normalized_returns.shape
-        n_samples = n_timesteps - lookback
+        
+        # Skip initial samples where volatility was not computed properly
+        start_idx = volatility_window
+        n_samples = n_timesteps - lookback - start_idx
+        
+        print(f"Skipping first {start_idx} samples (volatility burn-in period)")
         
         X_returns = np.zeros((n_samples, lookback, n_stocks), dtype=np.float32)
         X_volatility = np.zeros((n_samples, lookback, n_stocks), dtype=np.float32)  # Historical volatility
         y = np.zeros((n_samples, n_stocks), dtype=np.float32)
         
         for i in range(n_samples):
-            X_returns[i] = self.normalized_returns[i:i+lookback]
-            X_volatility[i] = self.normalized_volatility[i:i+lookback]  # Historical volatility over lookback window
-            y[i] = self.normalized_volatility[i+lookback]
+            actual_idx = start_idx + i
+            X_returns[i] = self.normalized_returns[actual_idx:actual_idx+lookback]
+            X_volatility[i] = self.normalized_volatility[actual_idx:actual_idx+lookback]
+            y[i] = self.normalized_volatility[actual_idx+lookback]
             
         print(f"Created {n_samples} sequences.")
         return X_returns, X_volatility, y

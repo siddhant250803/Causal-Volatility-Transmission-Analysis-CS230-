@@ -234,7 +234,11 @@ def main():
     data_loader = StockDataLoader(config.DATA_PATH, config)
     data_loader.load_data(max_stocks=50)  # Start with 50 stocks for faster testing
     data_loader.compute_realized_volatility()
-    data_loader.normalize_data()
+    
+    # Compute train split index for proper normalization (avoid data leakage)
+    n_timesteps = len(data_loader.returns)
+    train_end_idx = int(n_timesteps * config.TRAIN_SPLIT)
+    data_loader.normalize_data(train_end_idx=train_end_idx)
     
     # Create sequences
     X_returns, X_volatility, y = data_loader.create_sequences()

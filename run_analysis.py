@@ -82,7 +82,13 @@ def train_for_stock(stock_name: str, num_stocks: int = 50, epochs: int = None, f
     
     # Preprocess
     data_loader.compute_realized_volatility()
-    data_loader.normalize_data()
+    
+    # Compute train split index for proper normalization (avoid data leakage)
+    n_timesteps = len(data_loader.returns)
+    train_end_idx = int(n_timesteps * config.TRAIN_SPLIT)
+    
+    # Normalize using only training data statistics
+    data_loader.normalize_data(train_end_idx=train_end_idx)
     
     # Create sequences
     print("\nStep 2: Creating training sequences...")
