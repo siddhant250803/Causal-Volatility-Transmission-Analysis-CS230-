@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 from typing import Tuple, List, Optional
-from config import Config
+from src.config import Config
 
 
 class StockDataLoader:

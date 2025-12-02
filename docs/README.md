@@ -15,37 +15,24 @@ Based on the CS230 project: *"Mapping Intraday Volatility Transmission Across 30
 
 ```
 .
-├── src/                        # Source code
-│   ├── config.py              # Configuration parameters
-│   ├── data/                  # Data loading and preprocessing
-│   │   ├── __init__.py
-│   │   └── dataloader.py
-│   ├── models/                # Model architectures
-│   │   ├── __init__.py
-│   │   └── attention_model.py
-│   ├── utils/                 # Utilities
-│   │   ├── __init__.py
-│   │   ├── losses.py
-│   │   ├── metrics.py
-│   │   └── granger_causality.py
-│   ├── train.py               # Training script
-│   ├── analyze_causality.py   # Causal analysis
-│   ├── analyze_first_5_stocks.py
-│   └── visualize_network.py
-├── scripts/                    # Entry point scripts
-│   ├── run_analysis.py        # Main interactive script (USE THIS!)
-│   ├── quick_test_5_stocks.py
-│   └── demo.py
-├── docs/                       # Documentation
-│   ├── README.md
-│   ├── ARCHITECTURE.md
-│   ├── SETUP.md
-│   └── ...
-├── paper/                      # CS230 proposal materials
-├── data/                       # Data directory (add your CSV here)
-├── checkpoints/                # Saved models (generated)
-├── plots/                      # Generated visualizations
-└── results/                    # Analysis results (CSV)
+├── config.py                 # Configuration parameters
+├── data/
+│   ├── __init__.py
+│   └── dataloader.py        # Data loading and preprocessing
+├── models/
+│   ├── __init__.py
+│   └── attention_model.py   # Attention-based causal model
+├── utils/
+│   ├── __init__.py
+│   ├── losses.py           # Loss functions with regularization
+│   ├── metrics.py          # Evaluation metrics
+│   └── granger_causality.py # Granger causality validation
+├── train.py                # Training script
+├── analyze_causality.py    # Causal analysis and visualization
+├── run_analysis.py         # Main interactive script (USE THIS!)
+├── checkpoints/            # Saved models
+├── plots/                  # Generated visualizations
+└── results/                # Analysis results (CSV)
 ```
 
 ## Installation
@@ -55,54 +42,35 @@ Based on the CS230 project: *"Mapping Intraday Volatility Transmission Across 30
 pip install -r requirements.txt
 ```
 
-2. Place the data file `HF_Returns_Stocks.csv` in the project root or `data/` directory.
+2. Ensure you have the data file `HF_Returns_Stocks.csv` in the project root.
 
 ## Quick Start
 
-### Basic Usage
-
-#### 1. List Available Stocks
+### 1. List Available Stocks
 ```bash
-python scripts/run_analysis.py --list
+python run_analysis.py --list
 ```
 
-#### 2. Train Model for a Stock
+### 2. Train Model for a Stock
 Train a model to predict volatility for AAPL using information from other stocks:
 ```bash
-python scripts/run_analysis.py --train --stock AAPL
+python run_analysis.py --train --stock AAPL
 ```
 
-#### 3. Analyze Causal Relationships
+### 3. Analyze Causal Relationships
 After training, analyze which stocks causally influence AAPL (includes Granger causality validation):
 ```bash
-python scripts/run_analysis.py --analyze --stock AAPL
+python run_analysis.py --analyze --stock AAPL
 ```
 
-#### 4. Train and Analyze (One Command)
+### 4. Train and Analyze (One Command)
 ```bash
-python scripts/run_analysis.py --train --analyze --stock AAPL
+python run_analysis.py --train --analyze --stock AAPL
 ```
 
-### 🆕 Enhanced Quick Start
-
-#### Test with 5 Stocks (Enhanced Visualizations)
+### 5. Skip Granger Testing (Faster)
 ```bash
-python scripts/enhanced_quick_test.py --epochs 20
-```
-
-#### With Hyperparameter Tuning
-```bash
-python scripts/enhanced_quick_test.py --hp_tuning --hp_trials 15
-```
-
-#### Parallel Training (All Stocks on AWS)
-```bash
-python scripts/parallel_train_all_stocks.py --max_workers 8
-```
-
-#### Test Hyperparameter Tuning
-```bash
-python scripts/test_hyperparameter_tuning.py --n_trials 10
+python run_analysis.py --analyze --stock AAPL --no_granger
 ```
 
 ## Advanced Usage
@@ -111,15 +79,15 @@ python scripts/test_hyperparameter_tuning.py --n_trials 10
 
 ```bash
 # Train with more stocks and custom epochs
-python scripts/run_analysis.py --train --stock NVDA --num_stocks 100 --epochs 30
+python run_analysis.py --train --stock NVDA --num_stocks 100 --epochs 30
 
 # Analyze with custom threshold and top K
-python scripts/run_analysis.py --analyze --stock NVDA --top_k 15 --threshold 0.15
+python run_analysis.py --analyze --stock NVDA --top_k 15 --threshold 0.15
 ```
 
 ### Configuration
 
-Edit `src/config.py` to modify:
+Edit `config.py` to modify:
 - Model architecture (embedding dimensions, attention heads, etc.)
 - Training parameters (learning rate, batch size, epochs)
 - Regularization weights (gate sparsity, temporal smoothness)
@@ -207,17 +175,17 @@ Terminal output showing:
 
 ```bash
 # 1. Explore available stocks
-python scripts/run_analysis.py --list
+python run_analysis.py --list
 
 # 2. Train models for multiple stocks
-python scripts/run_analysis.py --train --stock AAPL
-python scripts/run_analysis.py --train --stock NVDA
-python scripts/run_analysis.py --train --stock MSFT
+python run_analysis.py --train --stock AAPL
+python run_analysis.py --train --stock NVDA
+python run_analysis.py --train --stock MSFT
 
 # 3. Analyze causal relationships
-python scripts/run_analysis.py --analyze --stock AAPL --top_k 15
-python scripts/run_analysis.py --analyze --stock NVDA --top_k 15
-python scripts/run_analysis.py --analyze --stock MSFT --top_k 15
+python run_analysis.py --analyze --stock AAPL --top_k 15
+python run_analysis.py --analyze --stock NVDA --top_k 15
+python run_analysis.py --analyze --stock MSFT --top_k 15
 
 # 4. Compare results
 # Check results/ and plots/ directories
@@ -233,16 +201,7 @@ python scripts/run_analysis.py --analyze --stock MSFT --top_k 15
 ✅ **Regularized learning** - Sparse, stable, and smooth causal graphs  
 ✅ **Interactive interface** - Simple command-line usage  
 ✅ **Comprehensive visualization** - Multiple plot types for analysis  
-✅ **Scalable** - Handles hundreds of stocks efficiently
-
-### 🆕 Enhanced Features (New!)
-
-✨ **Publication-quality visualizations** - Enhanced network graphs, heatmaps, and multi-panel analysis  
-✨ **Hyperparameter tuning** - Automated randomized search with early stopping  
-✨ **Parallel training** - Multi-core support for AWS environments  
-✨ **Comprehensive testing** - Integrated test scripts with HP tuning validation
-
-See [docs/ENHANCED_FEATURES.md](docs/ENHANCED_FEATURES.md) for detailed documentation.  
+✅ **Scalable** - Handles hundreds of stocks efficiently  
 
 ## Technical Details
 

@@ -12,12 +12,12 @@ import json
 import argparse
 from tqdm import tqdm
 
-from config import Config
-from data import StockDataLoader, VolatilityDataset
-from models import CausalAttentionModel
-from utils import CausalRegularizedLoss, calculate_metrics
-from train import Trainer
-from analyze_causality import CausalityAnalyzer
+from src.config import Config
+from src.data import StockDataLoader, VolatilityDataset
+from src.models import CausalAttentionModel
+from src.utils import CausalRegularizedLoss, calculate_metrics
+from src.train import Trainer
+from src.analyze_causality import CausalityAnalyzer
 
 
 def list_available_stocks(data_path: str, max_stocks: int = 50):
@@ -206,7 +206,7 @@ def analyze_stock(stock_name: str, top_k: int = 10, threshold: float = 0.1,
         print("GRANGER CAUSALITY ANALYSIS")
         print("="*80)
         
-        from utils import GrangerCausalityTester, compute_realized_volatility_for_granger
+        from src.utils import GrangerCausalityTester, compute_realized_volatility_for_granger
         
         # Load data for Granger testing
         print("\nLoading data for Granger causality tests...")

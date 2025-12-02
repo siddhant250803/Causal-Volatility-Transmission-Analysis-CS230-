@@ -12,9 +12,9 @@ import os
 from typing import List, Dict
 import argparse
 
-from config import Config
-from models import CausalAttentionModel
-from data import StockDataLoader
+from src.config import Config
+from src.models import CausalAttentionModel
+from src.data import StockDataLoader
 
 
 class CausalityAnalyzer:

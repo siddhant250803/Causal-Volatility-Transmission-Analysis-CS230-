@@ -3,7 +3,7 @@ Quick test script for first 5 stocks.
 Includes Granger testing for full validation.
 """
 
-from analyze_first_5_stocks import analyze_first_5_stocks
+from src.analyze_first_5_stocks import analyze_first_5_stocks
 
 if __name__ == '__main__':
     print("="*80)

@@ -4,10 +4,15 @@ Trains a model for each stock and generates a comprehensive report.
 """
 
 import os
+import sys
 import pandas as pd
-from config import Config
-from data import StockDataLoader
-from run_analysis import train_for_stock, analyze_stock
+
+# Add parent directory to path to import from scripts
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from src.config import Config
+from src.data import StockDataLoader
+from scripts.run_analysis import train_for_stock, analyze_stock
 
 def analyze_first_5_stocks(num_stocks=5, epochs=20, skip_granger=False):
     """

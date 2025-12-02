@@ -10,10 +10,10 @@ import os
 from tqdm import tqdm
 import json
 
-from config import Config
-from data import StockDataLoader, VolatilityDataset
-from models import CausalAttentionModel
-from utils import CausalRegularizedLoss, calculate_metrics
+from src.config import Config
+from src.data import StockDataLoader, VolatilityDataset
+from src.models import CausalAttentionModel
+from src.utils import CausalRegularizedLoss, calculate_metrics
 
 
 class Trainer:

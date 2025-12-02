@@ -23,18 +23,23 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.ipynb
 
 # PyTorch
 *.pt
 *.pth
 
-# Data
+# Data files
 *.csv
 *.h5
 *.hdf5
+*.pkl
+*.pickle
 
 # Logs
 *.log
@@ -44,18 +49,29 @@ wheels/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
 Thumbs.db
+.AppleDouble
+.LSOverride
 
-# Project specific
-checkpoints/
-plots/
-results/
-
-# Keep directory structure
+# Project specific - ignore generated content but keep directory structure
+checkpoints/*
 !checkpoints/.gitkeep
+plots/*
 !plots/.gitkeep
+results/*
 !results/.gitkeep
+data/*
+!data/.gitkeep
+!data/README.md
+
+# LaTeX auxiliary files
+*.aux
+*.out
+*.synctex.gz
+*.fdb_latexmk
+*.fls
 
