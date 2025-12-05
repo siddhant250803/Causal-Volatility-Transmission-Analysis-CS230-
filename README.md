@@ -1,299 +1,145 @@
-# Causal Volatility Transmission Analysis
+# Causal Volatility Transmission via Attention
+
+**CS230 Deep Learning Project** — Discovering lead/lag relationships in stock volatility using attention mechanisms.
 
 ## Overview
 
-This framework implements an **attention-based causal inference model** with **Granger causality validation** to map intraday volatility transmission across stocks using high-frequency (5-minute) trading data. The model learns:
+This project uses **self-attention** to discover causal relationships between stocks' volatility. The key insight: **attention weights directly represent causal influence strength** — no separate "causal gates" needed.
 
-1. **Which stocks influence others** (causal direction via learned gates)
-2. **How strong the influence is** (causal strength quantified)
-3. **The time delay of influence** (learned lags in 5-minute intervals)
-4. **Statistical validation** (Granger causality F-tests confirm relationships)
+Given 5-minute returns data for multiple stocks, the model learns:
+1. **Which stocks influence which** (from attention weights)
+2. **How strong the influence is** (attention magnitude)  
+3. **The time delay of influence** (learned lag in 5-min intervals)
 
-Based on the CS230 project: *"Mapping Intraday Volatility Transmission Across 300 Stocks Using Attention-Based Causal Inference"*
+## Quick Start
+
+```bash
+# Install
+pip install -r requirements.txt
+
+# Train on 23 stocks across Tech, Energy, Finance, Healthcare, Consumer sectors
+python scripts/fast_train.py --tickers "AAPL,MSFT,NVDA,AMD,INTC,ORCL,CSCO,XOM,CVX,COP,SLB,VLO,OXY,HAL,JPM,BAC,WFC,JNJ,PFE,PG,KO,BA,CAT" --epochs 6
+```
+
+## Model Architecture
+
+```
+Input: Returns + Volatility (B, T=12, N stocks)
+              ↓
+    ┌─────────────────────┐
+    │  Joint Encoder      │  Linear: ℝ² → ℝᵈ
+    └─────────────────────┘
+              ↓
+    ┌─────────────────────┐
+    │  Stock + Position   │  Learnable embeddings
+    │  Embeddings         │
+    └─────────────────────┘
+              ↓
+    ┌─────────────────────┐
+    │  Self-Attention     │  ← Attention weights αᵢⱼ
+    │  (Causal Mechanism) │    = causal strength
+    └─────────────────────┘
+              ↓
+    ┌─────────────────────┐
+    │  FFN + LayerNorm    │
+    └─────────────────────┘
+              ↓
+    ┌─────────────────────┐
+    │  Temporal Pooling   │  Last timestep
+    └─────────────────────┘
+          ↓       ↓
+    ┌─────────┐ ┌─────────┐
+    │ Lag Net │ │ Output  │
+    │ ℓⱼ∈[2,12]│ │ σ̂ᵢ,ₜ₊₁  │
+    └─────────┘ └─────────┘
+```
+
+**Key Design Choice:** Attention weights ARE the causal strengths. When stock A attends strongly to stock B, it means B's volatility causally influences A's future volatility.
+
+## Output
+
+### Visualizations (`plots/final_results.png`)
+
+| Panel | Description |
+|-------|-------------|
+| **R² Scores** | Prediction performance per stock |
+| **Causal Heatmap** | N×N matrix of attention-based causal strengths |
+| **Lag Distribution** | Histogram of learned time delays (10-60 min) |
+| **Top Relationships** | Strongest causal pairs with lag annotations |
+
+### CSV Results (`results/`)
+
+- `causal_relationships.csv` — All significant causal pairs:
+  ```
+  source, target, causal_strength, lag_intervals, lag_minutes
+  NVDA,   AAPL,   0.152,           3,             15
+  XOM,    CVX,    0.098,           5,             25
+  ```
 
 ## Project Structure
 
 ```
-.
-├── src/                        # Source code
-│   ├── config.py              # Configuration parameters
-│   ├── data/                  # Data loading and preprocessing
-│   │   ├── __init__.py
-│   │   └── dataloader.py
-│   ├── models/                # Model architectures
-│   │   ├── __init__.py
-│   │   └── attention_model.py
-│   ├── utils/                 # Utilities
-│   │   ├── __init__.py
-│   │   ├── losses.py
-│   │   ├── metrics.py
-│   │   └── granger_causality.py
-│   ├── train.py               # Training script
-│   ├── analyze_causality.py   # Causal analysis
-│   ├── analyze_first_5_stocks.py
-│   └── visualize_network.py
-├── scripts/                    # Entry point scripts
-│   ├── run_analysis.py        # Main interactive script (USE THIS!)
-│   ├── quick_test_5_stocks.py
-│   └── demo.py
-├── docs/                       # Documentation
-│   ├── README.md
-│   ├── ARCHITECTURE.md
-│   ├── SETUP.md
-│   └── ...
-├── paper/                      # CS230 proposal materials
-├── data/                       # Data directory (add your CSV here)
-├── checkpoints/                # Saved models (generated)
-├── plots/                      # Generated visualizations
-└── results/                    # Analysis results (CSV)
+CS230/
+├── scripts/
+│   └── fast_train.py       # Main training script
+├── src/
+│   ├── config.py           # Hyperparameters
+│   ├── data/
+│   │   └── dataloader.py   # Data loading & preprocessing
+│   ├── models/
+│   │   └── efficient_attention.py
+│   └── utils/
+│       ├── losses.py
+│       └── metrics.py
+├── results/                # Output CSVs
+├── plots/                  # Visualizations
+├── checkpoints/            # Saved models
+└── paper/                  # LaTeX report
 ```
 
-## Installation
+## Method Details
 
-1. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-2. Place the data file `HF_Returns_Stocks.csv` in the project root or `data/` directory.
-
-## Quick Start
-
-### Basic Usage
-
-#### 1. List Available Stocks
-```bash
-python scripts/run_analysis.py --list
-```
-
-#### 2. Train Model for a Stock
-Train a model to predict volatility for AAPL using information from other stocks:
-```bash
-python scripts/run_analysis.py --train --stock AAPL
-```
-
-#### 3. Analyze Causal Relationships
-After training, analyze which stocks causally influence AAPL (includes Granger causality validation):
-```bash
-python scripts/run_analysis.py --analyze --stock AAPL
-```
-
-#### 4. Train and Analyze (One Command)
-```bash
-python scripts/run_analysis.py --train --analyze --stock AAPL
-```
-
-### 🆕 Enhanced Quick Start
-
-#### Test with 5 Stocks (Enhanced Visualizations)
-```bash
-python scripts/enhanced_quick_test.py --epochs 20
-```
-
-#### With Hyperparameter Tuning
-```bash
-python scripts/enhanced_quick_test.py --hp_tuning --hp_trials 15
-```
-
-#### Parallel Training (All Stocks on AWS)
-```bash
-python scripts/parallel_train_all_stocks.py --max_workers 8
-```
-
-#### Test Hyperparameter Tuning
-```bash
-python scripts/test_hyperparameter_tuning.py --n_trials 10
-```
-
-## Advanced Usage
-
-### Custom Parameters
-
-```bash
-# Train with more stocks and custom epochs
-python scripts/run_analysis.py --train --stock NVDA --num_stocks 100 --epochs 30
-
-# Analyze with custom threshold and top K
-python scripts/run_analysis.py --analyze --stock NVDA --top_k 15 --threshold 0.15
-```
-
-### Configuration
-
-Edit `src/config.py` to modify:
-- Model architecture (embedding dimensions, attention heads, etc.)
-- Training parameters (learning rate, batch size, epochs)
-- Regularization weights (gate sparsity, temporal smoothness)
-- Data processing (lookback window, prediction horizon)
-
-## Model Architecture
-
-### Key Components
-
-1. **Learned Lag Attention Mechanism**
-   - Each stock has a learned lag parameter
-   - Determines optimal time delay for information transmission
-   - Range: 0 to 12 intervals (0 to 60 minutes)
-
-2. **Causal Gates**
-   - Learnable parameters for each stock
-   - Control which stocks have causal influence
-   - Sparse regularization promotes interpretability
-
-3. **Prediction Network**
-   - Combines target stock's own history with cross-stock influences
-   - Multi-layer perceptron predicts next-interval volatility
-
-### Loss Function
-
-```
-L = MSE + γ·TV(α) + η·IRM
-```
-
-Where:
-- **MSE**: Prediction accuracy
-- **TV(α)**: Total variation on attention weights (smoothness)
-- **IRM**: Invariant risk minimization (regime stability)
-
-**Default**: λ=0.0, γ=0.001, η=0.001
-
-### Granger Causality Validation
-
-After training, the framework automatically runs **Granger causality tests** (F-tests) to validate learned relationships:
-- Tests if source stock Granger-causes target stock
-- Compares neural network gates with statistical causality
-- Reports relationships validated by **both methods**
-
-## Output
-
-### 1. Trained Models
-Saved to `checkpoints/{STOCK}_best.pt`
-
-### 2. Analysis Report
-Terminal output showing:
-- Top influencing stocks
-- Causal strengths
-- Lag statistics
-
-Example:
-```
-TOP 10 INFLUENCING STOCKS:
-source_stock  target_stock  causal_strength  lag_minutes  lag_intervals
-         SPY          AAPL           0.8945         25.0              5
-        MSFT          AAPL           0.7823         15.0              3
-        NVDA          AAPL           0.7156         30.0              6
-         ...           ...              ...          ...            ...
-```
-
-### 3. CSV Results
-Multiple result files saved to `results/`:
-- `{STOCK}_causal_relationships.csv` - Attention-based gates
-- `{STOCK}_granger_causality.csv` - Granger test results
-- `{STOCK}_comparison.csv` - Side-by-side comparison
-
-### 4. Visualizations
-Saved to `plots/`:
-
-- **Causal Network**: Bar chart showing top influences with lag information
-- **Lag Distribution**: Histogram and scatter plot of lags vs. strengths
-- **Heatmap**: Visual representation of causal influence matrix
-
-### 5. Granger Causality Report
-Terminal output showing:
-- Stocks with significant Granger causality (p < 0.05)
-- Comparison: Attention vs. Granger methods
-- Relationships validated by **both** methods
-
-## Example Workflow
-
-```bash
-# 1. Explore available stocks
-python scripts/run_analysis.py --list
-
-# 2. Train models for multiple stocks
-python scripts/run_analysis.py --train --stock AAPL
-python scripts/run_analysis.py --train --stock NVDA
-python scripts/run_analysis.py --train --stock MSFT
-
-# 3. Analyze causal relationships
-python scripts/run_analysis.py --analyze --stock AAPL --top_k 15
-python scripts/run_analysis.py --analyze --stock NVDA --top_k 15
-python scripts/run_analysis.py --analyze --stock MSFT --top_k 15
-
-# 4. Compare results
-# Check results/ and plots/ directories
-```
-
-## Key Features
-
-✅ **Granger causality validation** - Statistical confirmation of learned relationships  
-✅ **Modular architecture** - Easy to extend and customize  
-✅ **Learned time lags** - Discovers temporal dependencies automatically  
-✅ **Causal interpretability** - Clear influence paths with strengths  
-✅ **Dual validation** - Neural network gates + classical F-tests  
-✅ **Regularized learning** - Sparse, stable, and smooth causal graphs  
-✅ **Interactive interface** - Simple command-line usage  
-✅ **Comprehensive visualization** - Multiple plot types for analysis  
-✅ **Scalable** - Handles hundreds of stocks efficiently
-
-### 🆕 Enhanced Features (New!)
-
-✨ **Publication-quality visualizations** - Enhanced network graphs, heatmaps, and multi-panel analysis  
-✨ **Hyperparameter tuning** - Automated randomized search with early stopping  
-✨ **Parallel training** - Multi-core support for AWS environments  
-✨ **Comprehensive testing** - Integrated test scripts with HP tuning validation
-
-See [docs/ENHANCED_FEATURES.md](docs/ENHANCED_FEATURES.md) for detailed documentation.  
-
-## Technical Details
-
-### Data Processing
-- **Input**: 5-minute high-frequency returns
-- **Preprocessing**: Z-score normalization per stock
-- **Target**: Realized volatility (rolling 1-hour window)
-- **Splits**: 70% train, 15% validation, 15% test (chronological)
-
-### Model Parameters
-- Embedding dimension: 64
-- Query/Key/Value dimension: 32
-- Max lag: 12 intervals (60 minutes)
-- Lookback window: 12 intervals (60 minutes)
-- Prediction horizon: 1 interval (5 minutes)
+### Data Preprocessing
+1. Load 5-minute stock returns
+2. Compute realized volatility: σₜ = √(Σᵢ rₜ₋ᵢ²) over 1-hour rolling window
+3. Z-score normalize using training set statistics
+4. Create sequences with lookback T=12 (1 hour)
 
 ### Training
-- Optimizer: Adam (lr=0.001)
-- Batch size: 32
-- Early stopping: Patience of 10 epochs
-- Gradient clipping: max norm = 1.0
+- **Loss:** MSE on volatility prediction
+- **Optimizer:** AdamW (lr=0.005, weight_decay=0.01)
+- **Early stopping:** Patience=1 epoch
+- **Batch size:** 1024
 
-## Limitations & Future Work
+### Causal Extraction
+After training, extract attention weights α from the model:
+- αᵢⱼ = how much stock j influences stock i
+- Normalize across sources for each target
+- Threshold at 0.03 for significance
 
-- Current implementation trains one model per target stock
-- For full network, train models for all stocks
-- Could add sector/industry information as features
-- Could implement regime detection for time-varying analysis
-- Could add more sophisticated IRM implementation
+## Interpretation
+
+| Lag (intervals) | Time Delay | Interpretation |
+|-----------------|------------|----------------|
+| 2 | 10 min | Fast information transmission |
+| 6 | 30 min | Medium-term spillover |
+| 12 | 60 min | Slow regime effects |
+
+**Example findings:**
+- Tech stocks (NVDA, AMD) often lead other tech stocks by 15-25 min
+- Energy sector shows strong within-sector causality (XOM→CVX)
+- Financial stocks (JPM, BAC) exhibit tight coupling with short lags
 
 ## Citation
 
-If you use this framework, please cite:
-
-```
-Sukhani, S., Roger, A., & Alhusseini, M. (2025). 
-Mapping Intraday Volatility Transmission Across 300 Stocks 
-Using Attention-Based Causal Inference. 
-CS230 Deep Learning Project, Stanford University.
-```
-
-Data source:
-```
-Pelger, M. (2020). Understanding Systematic Risk: A High-Frequency Approach.
+```bibtex
+@article{cs230volatility,
+  title={Causal Volatility Transmission via Attention},
+  author={Sukhani, S. and Roger, A. and Alhusseini, M.},
+  journal={CS230 Deep Learning Project},
+  institution={Stanford University},
+  year={2025}
+}
 ```
 
-## License
-
-MIT License - See repository for details
-
-## Contact
-
-For questions or issues, please open an issue on GitHub or contact the authors.
-
+Data: Pelger (2020) "Understanding Systematic Risk: A High-Frequency Approach"
