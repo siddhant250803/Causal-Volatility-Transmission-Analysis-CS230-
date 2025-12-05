@@ -32,28 +32,32 @@ class StockDataLoader:
         self.normalized_returns = None
         self.normalized_volatility = None
         
-    def load_data(self, max_stocks: Optional[int] = None):
+    def load_data(self, max_stocks: Optional[int] = None, tickers: Optional[List[str]] = None):
         """
         Load data from CSV file.
         
         Args:
             max_stocks: Maximum number of stocks to load (None for all)
+            tickers: Specific tickers to load (overrides max_stocks)
         """
         print("Loading data...")
-        # Read CSV, skip the first row which is a description
-        # Use latin-1 encoding to handle copyright symbol in header
         self.data = pd.read_csv(self.data_path, skiprows=1, low_memory=False, encoding='latin-1')
         
-        # Extract date and time columns
         self.dates = self.data['Date'].values
         self.times = self.data['Time'].values
         
-        # Extract stock names (all columns except Date and Time)
-        self.stock_names = [col for col in self.data.columns if col not in ['Date', 'Time']]
+        all_stocks = [col for col in self.data.columns if col not in ['Date', 'Time']]
         
-        # Limit number of stocks if specified
-        if max_stocks is not None:
-            self.stock_names = self.stock_names[:max_stocks]
+        if tickers:
+            self.stock_names = [t for t in tickers if t in all_stocks]
+            missing = [t for t in tickers if t not in all_stocks]
+            if missing:
+                print(f"⚠️  Not found: {', '.join(missing[:5])}")
+            print(f"✓ Loaded {len(self.stock_names)} tickers")
+        elif max_stocks:
+            self.stock_names = all_stocks[:max_stocks]
+        else:
+            self.stock_names = all_stocks
         
         # Extract returns data
         self.returns = self.data[self.stock_names].values.astype(np.float32)
