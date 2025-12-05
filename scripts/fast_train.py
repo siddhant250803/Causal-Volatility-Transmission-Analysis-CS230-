@@ -26,11 +26,11 @@ from src.data import StockDataLoader
 
 class AttentionCausalModel(nn.Module):
     """
-    Causal model where ATTENTION WEIGHTS = CAUSAL STRENGTH.
-    No separate gates - the attention mechanism learns causal relationships directly.
+    FAST causal model - attention weights = causal strength.
+    Optimized for speed.
     """
     
-    def __init__(self, n_stocks, lookback, d_model=32, n_heads=2, max_lag=12):
+    def __init__(self, n_stocks, lookback, d_model=16, n_heads=1, max_lag=12):
         super().__init__()
         self.n_stocks = n_stocks
         self.lookback = lookback
@@ -39,89 +39,65 @@ class AttentionCausalModel(nn.Module):
         self.max_lag = max_lag
         self.min_lag = 2
         
-        # Input: (returns, volatility) -> embedding
+        # Input projection
         self.input_proj = nn.Linear(2, d_model)
         
-        # Stock identity embeddings
+        # Stock embeddings
         self.stock_emb = nn.Embedding(n_stocks, d_model)
         
-        # Position embeddings for temporal info
+        # Position embeddings
         self.pos_emb = nn.Embedding(lookback, d_model)
         
-        # Self-attention (this IS the causal mechanism)
-        self.attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True, dropout=0.1)
-        self.norm1 = nn.LayerNorm(d_model)
+        # Single attention layer (this IS the causal mechanism)
+        self.attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True, dropout=0.0)
+        self.norm = nn.LayerNorm(d_model)
         
-        # Feedforward
-        self.ffn = nn.Sequential(
-            nn.Linear(d_model, d_model * 2),
-            nn.GELU(),
-            nn.Dropout(0.1),
-            nn.Linear(d_model * 2, d_model)
-        )
-        self.norm2 = nn.LayerNorm(d_model)
+        # Simple FFN
+        self.ffn = nn.Linear(d_model, d_model)
         
-        # Lag prediction network
-        self.lag_net = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, 1)
-        )
+        # Lag prediction (simple)
+        self.lag_net = nn.Linear(d_model, 1)
         
-        # Output prediction
+        # Output
         self.out = nn.Linear(d_model, 1)
         
-        # Store attention weights for causal analysis
+        # Store attention weights
         self.last_attn_weights = None
         
     def forward(self, X_ret, X_vol, target_idx=None):
         B, T, N = X_ret.shape
         device = X_ret.device
         
-        # 1. Encode inputs: stack (returns, vol) and project
+        # Encode: stack and project
         x = torch.stack([X_ret, X_vol], dim=-1)  # (B, T, N, 2)
         x = self.input_proj(x)  # (B, T, N, D)
         
-        # 2. Add stock embeddings
-        stock_ids = torch.arange(N, device=device)
-        x = x + self.stock_emb(stock_ids).unsqueeze(0).unsqueeze(1)  # broadcast
+        # Add embeddings (precompute for speed)
+        x = x + self.stock_emb.weight.view(1, 1, N, -1)
+        x = x + self.pos_emb.weight.view(1, T, 1, -1)
         
-        # 3. Add position embeddings
-        pos_ids = torch.arange(T, device=device)
-        x = x + self.pos_emb(pos_ids).unsqueeze(0).unsqueeze(2)  # broadcast
-        
-        # 4. Flatten for attention: (B, T*N, D)
+        # Flatten and attend
         x_flat = x.view(B, T * N, -1)
-        
-        # 5. Self-attention - THIS IS THE CAUSAL MECHANISM
         attn_out, attn_weights = self.attn(x_flat, x_flat, x_flat, need_weights=True)
-        self.last_attn_weights = attn_weights.detach()  # (B, T*N, T*N)
+        self.last_attn_weights = attn_weights.detach()
         
-        x_flat = self.norm1(x_flat + attn_out)
+        x_flat = self.norm(x_flat + attn_out)
+        x_flat = x_flat + F.relu(self.ffn(x_flat))
         
-        # 6. Feedforward
-        x_flat = self.norm2(x_flat + self.ffn(x_flat))
+        # Last timestep
+        x = x_flat.view(B, T, N, -1)[:, -1, :, :]  # (B, N, D)
         
-        # 7. Reshape back: (B, T, N, D)
-        x = x_flat.view(B, T, N, -1)
+        # Lags and prediction
+        lags = self.min_lag + torch.sigmoid(self.lag_net(x).squeeze(-1)) * (self.max_lag - self.min_lag)
         
-        # 8. Use last timestep for prediction
-        x_last = x[:, -1, :, :]  # (B, N, D)
-        
-        # 9. Predict lags per stock
-        lags = self.min_lag + torch.sigmoid(self.lag_net(x_last).squeeze(-1)) * (self.max_lag - self.min_lag)
-        
-        # 10. Predict volatility for target stock
         if target_idx is not None:
-            # Use target stock's representation (which has attended to all others)
-            target_rep = x_last[:, target_idx, :]  # (B, D)
-            pred = self.out(target_rep)
+            pred = self.out(x[:, target_idx, :])
         else:
-            pred = self.out(x_last).squeeze(-1)
+            pred = self.out(x).squeeze(-1)
         
         return {
             'predictions': pred,
-            'lags': lags.mean(0),  # (N,) average over batch
+            'lags': lags.mean(0),
             'attn_weights': self.last_attn_weights
         }
     
@@ -184,37 +160,45 @@ def load_data(config, tickers=None):
     }
 
 
-def train_stock(idx, name, data, config, epochs=10, batch_size=512):
-    """Train one stock - FAST."""
+def train_stock(idx, name, data, config, epochs=10, batch_size=1024, verbose=True):
+    """Train one stock - ULTRA FAST."""
     device = config.DEVICE
     
-    # Create tensors
+    if verbose:
+        print(f"\n{'─'*50}")
+        print(f"📈 Training: {name} ({idx+1}/{data['n_stocks']})")
+        print(f"{'─'*50}")
+    
+    # Use subset of training data for speed (every 2nd sample)
     X_ret, X_vol, y = data['train']
+    step = 2  # Use half the data
     train_ds = TensorDataset(
-        torch.FloatTensor(X_ret),
-        torch.FloatTensor(X_vol),
-        torch.FloatTensor(y[:, idx])
+        torch.FloatTensor(X_ret[::step]),
+        torch.FloatTensor(X_vol[::step]),
+        torch.FloatTensor(y[::step, idx])
     )
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
     
+    # Smaller validation set
     X_ret_v, X_vol_v, y_v = data['val']
+    val_size = min(5000, len(X_ret_v))
     val_ds = TensorDataset(
-        torch.FloatTensor(X_ret_v),
-        torch.FloatTensor(X_vol_v),
-        torch.FloatTensor(y_v[:, idx])
+        torch.FloatTensor(X_ret_v[:val_size]),
+        torch.FloatTensor(X_vol_v[:val_size]),
+        torch.FloatTensor(y_v[:val_size, idx])
     )
     val_loader = DataLoader(val_ds, batch_size=batch_size)
     
-    # Model - NO GATES, just attention
+    # Smaller, faster model
     model = AttentionCausalModel(
         n_stocks=data['n_stocks'],
         lookback=config.LOOKBACK_WINDOW,
-        d_model=32,
-        n_heads=2,
+        d_model=16,  # Smaller
+        n_heads=1,   # Single head
         max_lag=12
     ).to(device)
     
-    optimizer = optim.AdamW(model.parameters(), lr=0.002, weight_decay=0.01)
+    optimizer = optim.AdamW(model.parameters(), lr=0.005, weight_decay=0.01)  # Higher LR
     
     best_loss = float('inf')
     patience = 0
@@ -262,14 +246,21 @@ def train_stock(idx, name, data, config, epochs=10, batch_size=512):
         history['val_loss'].append(val_loss)
         history['val_r2'].append(r2)
         
-        # Early stopping (patience = 2)
+        # Print epoch progress
+        if verbose:
+            status = "✓ best" if val_loss < best_loss else ""
+            print(f"  Epoch {epoch+1:2d}: train={train_loss:.5f} val={val_loss:.5f} R²={r2:.4f} {status}")
+        
+        # Early stopping (patience = 1 for speed)
         if val_loss < best_loss:
             best_loss = val_loss
             patience = 0
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
         else:
             patience += 1
-            if patience >= 2:
+            if patience >= 1:  # Very aggressive
+                if verbose:
+                    print(f"  ⏹ Early stop @ epoch {epoch+1}")
                 break
     
     # Load best model
@@ -282,6 +273,17 @@ def train_stock(idx, name, data, config, epochs=10, batch_size=512):
     X_v = torch.FloatTensor(data['val'][1][:256]).to(device)
     
     causal_strengths, lags = model.get_causal_strengths(X_r, X_v, idx)
+    
+    # Show top influencers
+    if verbose:
+        top_k = 5
+        sorted_idx = np.argsort(causal_strengths)[::-1]
+        print(f"\n  Top {top_k} influencers on {name}:")
+        for rank, j in enumerate(sorted_idx[:top_k]):
+            source = data['stock_names'][j]
+            strength = causal_strengths[j]
+            lag = lags[j]
+            print(f"    {rank+1}. {source:6s} → {name}: strength={strength:.3f}, lag={lag:.1f} intervals ({lag*5:.0f} min)")
     
     return {
         'name': name,
@@ -392,20 +394,19 @@ def create_final_visualization(all_results, stock_names, save_path='plots/final_
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--tickers', type=str, default=None)
-    parser.add_argument('--epochs', type=int, default=10)
-    parser.add_argument('--batch_size', type=int, default=512)
+    parser.add_argument('--epochs', type=int, default=8)
+    parser.add_argument('--batch_size', type=int, default=1024)
     args = parser.parse_args()
     
     config = Config()
     tickers = [t.strip().upper() for t in args.tickers.split(',')] if args.tickers else None
     
     print("\n" + "="*60)
-    print("⚡ ATTENTION-BASED CAUSAL DISCOVERY")
-    print("   (No gates - attention weights = causal strength)")
+    print("🚀 ULTRA-FAST CAUSAL DISCOVERY")
+    print("   Attention weights = Causal strength")
     print("="*60)
-    print(f"  Batch size: {args.batch_size}")
-    print(f"  Epochs: {args.epochs}")
-    print(f"  Early stopping: 2 epochs patience")
+    print(f"  Batch: {args.batch_size} | Epochs: {args.epochs} | Patience: 1")
+    print(f"  Model: d=16, heads=1 | Data: 50% subsample")
     print("="*60 + "\n")
     
     # Load data
@@ -416,10 +417,10 @@ def main():
     results = []
     start = time.time()
     
-    for idx, name in enumerate(tqdm(data['stock_names'], desc="Training")):
-        r = train_stock(idx, name, data, config, args.epochs, args.batch_size)
+    for idx, name in enumerate(data['stock_names']):
+        r = train_stock(idx, name, data, config, args.epochs, args.batch_size, verbose=True)
         results.append(r)
-        tqdm.write(f"  {name}: R²={r['r2']:.4f} ({r['epochs_trained']} epochs)")
+        print(f"  ✅ {name} complete: R²={r['r2']:.4f} ({r['epochs_trained']} epochs)\n")
     
     elapsed = time.time() - start
     
